@@ -16,7 +16,9 @@ def dashboard() -> dict[str, Any]:
         day = settings_repo.get(conn, "business_day") or ""
         scope = scope_rules.normalize(settings_repo.get(conn, scope_rules.SETTING_KEY))
         summary = line_repo.day_summary(conn, day, scope) if day else None
+        # 已封状态以现行 sealed 批为准，并与日锁水位互证（正常情况下两者必然一致）。
         sealed = seal_gate.sealed_for_dashboard(conn, day, close_repo) if day else False
+        locked = seal_gate.is_day_locked(conn, day) if day else False
         return {
             "business_day": day,
             "scope": scope,
@@ -28,7 +30,10 @@ def dashboard() -> dict[str, Any]:
             "cash_line_count_today": summary["cash_line_count"] if summary else 0,
             "day_line_count_today": summary["day_line_count"] if summary else 0,
             "sealed_today": sealed,
-            "close_batch_count": seal_gate.inflate_batch_count(conn),
+            "day_lock_status": seal_gate.LOCK_SEALED if locked else seal_gate.LOCK_OPEN,
+            # 已封计数只数现行 sealed 批，与批态严格同源；总批数单独给出，不混加。
+            "sealed_batch_count": seal_gate.sealed_batch_count(conn),
+            "close_batch_count": seal_gate.total_batch_count(conn),
             "open_variance_count": conn.execute(
                 "SELECT COUNT(*) c FROM variance_rows WHERE disposition='pending'"
             ).fetchone()["c"],

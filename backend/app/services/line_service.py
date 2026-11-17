@@ -126,6 +126,7 @@ def list_lines_export(business_day: str | None = None) -> list[dict]:
     return align_mod.filter_lines_for_export(rows)
 
 
-def gate_for_day(day_sealed: bool, pending: int, latch_open: bool) -> dict:
+def gate_for_day(day_sealed: bool, pending: int = 0, latch_open: bool | None = None) -> dict:
+    """写闸矩阵：只认日锁水位，latch_open 参数仅为兼容旧签名，已不参与判定。"""
     return align_mod.gate_matrix(day_sealed, pending, latch_open)
 

@@ -39,6 +39,8 @@ def preview(business_day: str | None = None) -> dict[str, Any]:
             "all_total": summary["all_total"],
             "methods": summary["methods"],
             "sealed": close_repo.is_sealed(conn, day),
+            "day_lock_status": seal_gate.LOCK_SEALED
+            if seal_gate.is_day_locked(conn, day) else seal_gate.LOCK_OPEN,
             "lines": line_repo.list_lines(conn, day),
         }
     finally:
@@ -95,7 +97,12 @@ def seal(body: dict[str, Any]) -> dict[str, Any]:
             disposition=disposition,
             created_at=sealed_at,
         )
-        seal_gate.mark_open_after_seal(conn, settings_repo)
+        # 日锁水位与 sealed 批在同一事务内落库：水位行必须由本批背书，
+        # 任何一步失败整体回滚，杜绝「回执 sealed 而水位仍 open」。
+        lock = seal_gate.reconcile_day(conn, day)
+        if not lock["locked"] or lock["batch_id"] != batch_id:
+            # 触发器/收口没能建立本批背书的水位行时，绝不允许带着 sealed 批提交。
+            raise HTTPException(500, f"营业日 {day} 日锁水位收口失败，封账已回滚")
         conn.commit()
         return {
             "batch_id": batch_id,
@@ -110,6 +117,8 @@ def seal(body: dict[str, Any]) -> dict[str, Any]:
             "line_count": summary["line_count"],
             "day_line_count": summary["day_line_count"],
             "status": "sealed",
+            "day_lock_status": seal_gate.LOCK_SEALED,
+            "day_lock_batch_id": batch_id,
             "disposition": disposition,
             "methods": close_repo.list_methods(conn, batch_id),
         }
@@ -148,12 +157,12 @@ def list_variances() -> list[dict[str, Any]]:
         conn.close()
 
 def list_batches_extended() -> list[dict]:
+    """带对齐标注的批次列表。每个标注都来自同一份批次事实，不另造计数。"""
     rows = list_batches()
     summary = align_mod.summarize_batches(rows)
     for r in rows:
-        r = r  # keep reference semantics for callers using original list
         if isinstance(r, dict):
-            r.setdefault("alignment", summary.get("alignment_token") if False else summary.get("sealed_count"))
+            r["alignment_sealed_count"] = summary["sealed_count"]
     return rows
 
 

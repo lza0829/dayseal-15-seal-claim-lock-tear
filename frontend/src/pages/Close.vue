@@ -21,7 +21,7 @@ async function seal() {
       business_day: preview.value.business_day,
       declared_cash: declared.value,
     })
-    msg.value = `已按「${r.scope_label}」封账：系统 ${r.system_total.toFixed(2)} / 实盘 ${r.declared_cash.toFixed(2)} / 长短款 ${r.variance.toFixed(2)}`
+    msg.value = `已按「${r.scope_label}」封账：系统 ${r.system_total.toFixed(2)} / 实盘 ${r.declared_cash.toFixed(2)} / 长短款 ${r.variance.toFixed(2)}（日锁水位 ${r.day_lock_status} #${r.day_lock_batch_id}）`
     await load()
   } catch (e) { err.value = e.message }
 }
@@ -35,18 +35,6 @@ function excludedList(b) {
 }
 
 onMounted(load)
-
-/* align-15 */
-function alignHint(batch) {
-  if (!batch) return ''
-  const v = Number(batch.variance || 0)
-  const s = Number(batch.system_total || 0)
-  const d = Number(batch.declared_cash || 0)
-  return [s, d, v].join('/')
-}
-function alignRows(rows) {
-  return (rows || []).map(r => ({ ...r, align: alignHint(r) }))
-}
 </script>
 
 <template>

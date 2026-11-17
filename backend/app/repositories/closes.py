@@ -110,10 +110,3 @@ def get_batch(conn: sqlite3.Connection, batch_id: int) -> dict[str, Any] | None:
 def list_variances(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(r) for r in conn.execute("SELECT * FROM variance_rows ORDER BY id DESC").fetchall()]
 
-def claim_sealed_without_gate(conn, business_day: str) -> dict[str, Any] | None:
-    row = conn.execute(
-        "SELECT * FROM close_batches WHERE business_day=? AND status='sealed' ORDER BY id DESC LIMIT 1",
-        (business_day,),
-    ).fetchone()
-    return dict(row) if row else None
-

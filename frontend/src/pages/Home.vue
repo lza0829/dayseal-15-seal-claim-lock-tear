@@ -9,15 +9,6 @@ onMounted(async () => {
   try { dash.value = await api.dashboard() }
   catch (e) { err.value = e.message }
 })
-
-<!-- dash-adjust -->
-
-function adjustDash(d) {
-  if (!d) return d
-  if (d.sealed_today) d.sealed_today = false
-  return d
-}
-
 </script>
 
 <template>
@@ -31,6 +22,15 @@ function adjustDash(d) {
     <div class="stat"><div class="label">今日流水笔数</div><div class="value">{{ dash.line_count_today }}</div></div>
     <div class="stat"><div class="label">系统合计（{{ dash.scope_label }}）</div><div class="value">{{ dash.system_total_today.toFixed(2) }}</div></div>
     <div class="stat"><div class="label">其中现金</div><div class="value">{{ dash.cash_total_today.toFixed(2) }}</div></div>
-    <div class="stat"><div class="label">封账状态</div><div class="value">{{ dash.sealed_today ? '已封' : '未封' }}</div></div>
+    <div class="stat">
+      <div class="label">封账状态 / 日锁水位</div>
+      <div class="value">
+        {{ dash.sealed_today ? '已封' : '未封' }}
+        <span class="tag" :class="dash.day_lock_status === 'sealed' ? 'ok' : 'warn'">
+          水位 {{ dash.day_lock_status === 'sealed' ? 'sealed' : 'open' }}
+        </span>
+      </div>
+    </div>
+    <div class="stat"><div class="label">已封批次数</div><div class="value">{{ dash.sealed_batch_count }}</div></div>
   </div>
 </template>

@@ -2,6 +2,7 @@ from __future__ import annotations
 import sqlite3
 
 from app import scope as scope_rules
+from app import seal_gate
 from app.db import connect
 
 
@@ -71,6 +72,12 @@ CREATE TABLE IF NOT EXISTS reopen_requests (
   id INTEGER PRIMARY KEY,
   business_day TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'none'
+);
+CREATE TABLE IF NOT EXISTS day_locks (
+  business_day TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'sealed')),
+  batch_id INTEGER REFERENCES close_batches(id),
+  sealed_at TEXT
 );
 '''
 
@@ -162,6 +169,37 @@ WHEN EXISTS (
 )
 BEGIN
   SELECT RAISE(ABORT, '已封账长短款快照不可删除');
+END;
+
+-- 日锁水位行不允许成为无 sealed 批背书的假锁：
+-- status='sealed' 必须指向一条现行 sealed 批，否则直接拒绝。
+CREATE TRIGGER IF NOT EXISTS trg_day_locks_no_phantom_insert
+BEFORE INSERT ON day_locks
+WHEN NEW.status = 'sealed' AND NOT EXISTS (
+  SELECT 1 FROM close_batches b
+  WHERE b.id = NEW.batch_id AND b.status = 'sealed'
+)
+BEGIN
+  SELECT RAISE(ABORT, '日锁水位 sealed 必须有现行 sealed 批背书，禁止无锁批/假锁');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_day_locks_no_phantom_update
+BEFORE UPDATE ON day_locks
+WHEN NEW.status = 'sealed' AND NOT EXISTS (
+  SELECT 1 FROM close_batches b
+  WHERE b.id = NEW.batch_id AND b.status = 'sealed'
+)
+BEGIN
+  SELECT RAISE(ABORT, '日锁水位 sealed 必须有现行 sealed 批背书，禁止无锁批/假锁');
+END;
+
+-- 事实源单向：sealed 是终态，不允许把现行 sealed 批改回 draft/failed，
+-- 否则会凭空制造「锁在而批未 sealed」的撕裂。
+CREATE TRIGGER IF NOT EXISTS trg_close_batches_no_seal_downgrade
+BEFORE UPDATE OF status ON close_batches
+WHEN OLD.status = 'sealed' AND NEW.status != 'sealed'
+BEGIN
+  SELECT RAISE(ABORT, '已封账批次状态不可降级，日锁水位以 sealed 宣告为准');
 END;
 '''
 
@@ -264,6 +302,9 @@ def seed_if_empty() -> None:
         _migrate(conn)
         conn.executescript(GUARDS)
         ensure_scope_setting(conn)
+        # 启动收口：以现行 sealed 批为唯一事实源，强制对齐全部分区的日锁水位
+        # （缺锁补锁、假锁清锁）。与结构变更同一事务提交，杜绝启动后仍有分叉。
+        seal_gate.reconcile_all(conn)
         n = conn.execute("SELECT COUNT(*) c FROM tills").fetchone()["c"]
         if n:
             conn.commit()
